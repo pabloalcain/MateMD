@@ -279,7 +279,8 @@ class Particles(object):
 
         if name not in self.names:
             self.names.append(name)
-
+            self.mass[name] = 1.0
+            
         for _ in xrange(N):
             self.name.append(name)
             
