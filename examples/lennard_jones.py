@@ -16,7 +16,7 @@ part = mdsys.Particles(box, dim = 3)
 nL = 5
 npart = nL**3
 x = np.zeros((npart, 3))
-for (i, j, k) in product(range(nL), range(nL), range(nL)):
+for (i, j, k) in product(xrange(nL), xrange(nL), xrange(nL)):
     x[i * nL**2 + j * nL + k, :] = [i, j, k]
 v = 0.5*np.random.rand(npart, 3)
 part.add_particles(npart, x, v)
