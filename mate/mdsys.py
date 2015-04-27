@@ -35,43 +35,14 @@ class MDSys(object):
                               "equal to that of the box"))
 
         self.dt = float(dt)
+        self.time = 0
         self.dim = box.dim
         self.box = box
+
         self.particles = particles
+        self.particles.precondition()
+
         self.interaction = interaction
-        self.potential = 0
-
-        self.part_list = {}
-        self.pair_list = {}
-        self.precondition()
-
-
-    def precondition(self):
-        """Get the indices through which we should run, and check if anything
-        is missing. Populate the dictionaries part_list (that has the
-        list of particle indices for each type) and pair_list (the
-        list of particle pair indices for each particle pair).
-
-        """
-
-        self.part_list = {}
-        for j in self.particles.names:
-            self.part_list[j] = \
-            [i for i, _x in enumerate(self.particles.name) if _x == j]
-
-        #Create all pair_list arrays
-        self.pair_list = {}
-        for pair_name in cwr(self.particles.names, 2):
-            self.pair_list[tuple(sorted(pair_name))] = []
-
-        #Populate pair_list
-        for pair in combinations(xrange(self.particles.N), 2):
-            name_1 = self.particles.name[pair[0]]
-            name_2 = self.particles.name[pair[1]]
-            pair_name = tuple(sorted((name_1, name_2)))
-            self.pair_list[pair_name].append((pair[0], pair[1]))
-
-
 
     def run(self, n):
         """Run the simulation
@@ -85,7 +56,7 @@ class MDSys(object):
         """
 
         for _ in xrange(n):
-            print _
+            self.time += self.dt
             self.first_step()
             self.forces()
             self.final_step()
@@ -96,24 +67,25 @@ class MDSys(object):
         """
 
         #Loop over all types
-        for i in self.part_list.keys():
+        for i in self.particles.part_list.keys():
             mass = self.particles.mass[i]
             #Loop over all particles of this type
-            for index in self.part_list[i]:
+            for index in self.particles.part_list[i]:
                 dv = 0.5 * self.dt / mass * self.particles.f[index]
                 self.particles.v[index] += dv
-                dx = self.dt * self.particles.v[index] 
+                dx = self.dt * self.particles.v[index]
                 self.particles.x[index] += dx
-                
+
+
     def final_step(self):
         """Final step of Verlet integration
         """
 
         #Loop over all types
-        for i in self.part_list.keys():
+        for i in self.particles.part_list.keys():
             mass = self.particles.mass[i]
             #Loop over all particles of this type
-            for index in self.part_list[i]:
+            for index in self.particles.part_list[i]:
                 dv = 0.5 * self.dt / mass * self.particles.f[index]
                 self.particles.v[index] += dv
 
@@ -124,15 +96,15 @@ class MDSys(object):
 
         #Loop over all types
         length = [0] * self.dim
-        self.potential = 0
+        self.particles.potential = 0
         self.particles.f.fill(0.0)
         for i in range(self.dim):
             length[i] = self.box.shape[i][1] - self.box.shape[i][0]
-        for i in self.pair_list.keys():
+        for i in self.particles.pair_list.keys():
             F = self.interaction[i].force
             V = self.interaction[i].energy
             #Loop over all particles of this type
-            for index in self.pair_list[i]:
+            for index in self.particles.pair_list[i]:
                 _ii = index[0]
                 _jj = index[1]
                 r1 = self.particles.x[_ii]
@@ -142,12 +114,12 @@ class MDSys(object):
                     while r[k] > 0.5 * length[k]:
                         r[k] -= length[k]
                     while r[k] < - 0.5 * length[k]:
-                        r[k] += length[k] 
+                        r[k] += length[k]
                 rabs = np.linalg.norm(r)
                 if rabs > self.interaction[i].rcut: continue
                 self.particles.f[_ii] += F(rabs)/rabs * r
                 self.particles.f[_jj] -= F(rabs)/rabs * r
-                self.potential += V(rabs)
+                self.particles.potential += V(rabs)
 
     def boundary(self):
         length = [0] * self.dim
@@ -160,17 +132,28 @@ class MDSys(object):
                 while self.particles.x[j, i] < self.box.shape[i][0]:
                     self.particles.x[j, i] += 0.5 * length[i]
 
-    def kinetic_energy(self):
-        ke = 0.0
-        for i in self.part_list.keys():
-            mass = self.particles.mass[i]
-            v2 = 0
-            for index in self.part_list[i]:
-                v2 += np.dot(self.particles.v[index], self.particles.v[index])
-            ke += 0.5 * mass * v2
-        return ke
+    def dump(self, fname='dump.lammpstrj'):
+        """Append information of positions and velocities to a file.
 
-        
+        """
+        with open(fname, 'a') as fp:
+            print>>fp, "ITEM: TIMESTEP"
+            print>>fp, self.time
+            print>>fp, "ITEM: NUMBER OF ATOMS"
+            print>>fp, self.particles.N
+            print>>fp, "ITEM: BOX BOUNDS{0}".format(" pp"*self.dim)
+            for i in range(self.dim):
+                print>>fp, "{0} {1}".format(self.box.shape[i][0], self.box.shape[i][1])
+            print>>fp, "ITEM: ATOMS id type x y z vx vy vz"
+            for i in range(self.particles.N):
+                print >>fp, i,
+                print >>fp, self.particles.name[i],
+                for j in range(self.dim):
+                    print>>fp, self.particles.x[i, j],
+                for j in range(self.dim):
+                    print>>fp, self.particles.v[i, j],
+                print>>fp
+            
 
 class Particles(object):
 
@@ -206,13 +189,20 @@ class Particles(object):
         self.x = None
         self.v = None
         self.f = None
+        self.potential = 0
+        self.kinetic = 0
         self.name = []
 
         self.names = []
         self.mass = {}
         self.values = {'mass': self.mass}
+        self.part_list = {}
+        self.pair_list = {}
+
+
 
         self.N = 0
+        N = int(N)
         if N < 0:
             raise ValueError("Tried to create {0} particles".format(N))
         if N > 0:
@@ -244,7 +234,6 @@ class Particles(object):
 
         """
         dim = self.dim
-
         if x == None:
             x = np.zeros((N, dim))
             for _i in xrange(N):
@@ -280,11 +269,50 @@ class Particles(object):
         if name not in self.names:
             self.names.append(name)
             self.mass[name] = 1.0
-            
+
         for _ in xrange(N):
             self.name.append(name)
-            
+
         self.N += N
+
+    def kinetic_energy(self):
+        """Calculate kinetic energy of the particles.
+
+        """
+        self.kinetic = 0.0
+        for i in self.part_list.keys():
+            mass = self.mass[i]
+            v2 = 0
+            for index in self.part_list[i]:
+                v2 += np.dot(self.v[index], self.v[index])
+            self.kinetic += 0.5 * mass * v2
+
+
+    def precondition(self):
+        """Get the indices through which we should run, and check if anything
+        is missing. Populate the dictionaries part_list (that has the
+        list of particle indices for each type) and pair_list (the
+        list of particle pair indices for each particle pair).
+
+        """
+
+        self.part_list = {}
+        for j in self.names:
+            self.part_list[j] = \
+            [i for i, _x in enumerate(self.name) if _x == j]
+
+        #Create all pair_list arrays
+        self.pair_list = {}
+        for pair_name in cwr(self.names, 2):
+            self.pair_list[tuple(sorted(pair_name))] = []
+
+        #Populate pair_list
+        for pair in combinations(xrange(self.N), 2):
+            name_1 = self.name[pair[0]]
+            name_2 = self.name[pair[1]]
+            pair_name = tuple(sorted((name_1, name_2)))
+            self.pair_list[pair_name].append((pair[0], pair[1]))
+
 
 class Box(object):
     """Box class, defining the boundary of the simulation
@@ -330,8 +358,8 @@ class Potential(object):
         """
         self.rcut = rcut
         self.r = np.linspace(0, self.rcut, npoints + 1)[1:]
-        self.V = pot(self.r)
-        self.F = - np.diff(self.V)/np.diff(self.r)
+        self.V = pot(self.r) - pot(self.r[-1])
+        self.F = - (np.diff(self.V)/np.diff(self.r))
         self.F.resize(npoints)
 
     def energy(self, r):
@@ -364,4 +392,5 @@ class Potential(object):
             Force
 
         """
-        return np.interp(r, self.r, self.F)
+        idx = np.searchsorted(self.r, r)-1
+        return self.F[idx]
