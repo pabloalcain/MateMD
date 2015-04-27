@@ -6,11 +6,11 @@ import numpy as np
 from itertools import product
 
 #Set the box
-L = [0, 5] 
+L = [0, 5]
 box = mdsys.Box([L, L, L])
 
 #Start particles instance
-part = mdsys.Particles(box, dim = 3)
+part = mdsys.Particles(box, dim=3)
 
 #Create 125 particles in a lattice
 nL = 5
@@ -20,7 +20,7 @@ for (i, j, k) in product(xrange(nL), xrange(nL), xrange(nL)):
     x[i * nL**2 + j * nL + k, :] = [i, j, k]
 v = 0.5*np.random.rand(npart, 3)
 part.add_particles(npart, x, v)
-    
+
 #Set interaction
 lennard = lambda r: 4 * (r**(-12.0) - r**(-6.0))
 lj = mdsys.Potential(lennard, 2.5, 5000)
